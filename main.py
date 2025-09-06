@@ -35,8 +35,8 @@ load_dotenv()
 keep_alive()
 
 API_TOKEN = os.getenv("API_TOKEN")
-CHANNELS = [-1002619723869]
-LINKS = ["https://t.me/+-7Su2_mfb6QxNjdi"]
+CHANNELS = []
+LINKS = []
 MAIN_CHANNELS = []
 MAIN_LINKS = []
 BOT_USERNAME = os.getenv("BOT_USERNAME")
@@ -45,7 +45,7 @@ bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-ADMINS = {6486825926, 8452935714}
+ADMINS = {6486825926, 7575041003}
 
 # === KEYBOARDS ===
 def admin_keyboard():
@@ -209,15 +209,33 @@ async def show_all_animes(message: types.Message):
         await message.answer(text, parse_mode="Markdown")
 
 
+# === Admin bilan bog‘lanish (foydalanuvchi qismi) ===
+def cancel_keyboard():
+    kb = ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.add(KeyboardButton("❌ Bekor qilish"))
+    return kb
+
 
 # === Admin bilan bog‘lanish (foydalanuvchi qismi) ===
 @dp.message_handler(lambda m: m.text == "✉️ Admin bilan bog‘lanish")
 async def contact_admin(message: types.Message):
     await UserStates.waiting_for_admin_message.set()
-    await message.answer("✍️ Adminlarga yubormoqchi bo‘lgan xabaringizni yozing.\n\n❌ Bekor qilish uchun '❌ Bekor qilish' tugmasini bosing.")
+    await message.answer(
+        "✍️ Adminlarga yubormoqchi bo‘lgan xabaringizni yozing.\n\n❌ Bekor qilish tugmasini bosing agar ortga qaytmoqchi bo‘lsangiz.",
+        reply_markup=cancel_keyboard()
+    )
+
 
 @dp.message_handler(state=UserStates.waiting_for_admin_message)
 async def forward_to_admins(message: types.Message, state: FSMContext):
+    # Bekor qilish tugmasi bosilganda
+    if message.text == "❌ Bekor qilish":
+        await state.finish()
+        kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+        kb.add(KeyboardButton("🎞 Barcha animelar"), KeyboardButton("✉️ Admin bilan bog‘lanish"))
+        await message.answer("🏠 Asosiy menyuga qaytdingiz.", reply_markup=kb)
+        return
+
     await state.finish()
     user = message.from_user
 
@@ -238,7 +256,12 @@ async def forward_to_admins(message: types.Message, state: FSMContext):
         except Exception as e:
             print(f"Adminga yuborishda xatolik: {e}")
 
-    await message.answer("✅ Xabaringiz yuborildi. Tez orada admin siz bilan bog‘lanadi.")
+    await message.answer(
+        "✅ Xabaringiz yuborildi. Tez orada admin siz bilan bog‘lanadi.",
+        reply_markup=ReplyKeyboardMarkup(resize_keyboard=True, row_width=2).add(
+            KeyboardButton("🎞 Barcha animelar"), KeyboardButton("✉️ Admin bilan bog‘lanish")
+        )
+    )
 
 @dp.callback_query_handler(lambda c: c.data.startswith("reply_user:"), user_id=ADMINS)
 async def start_admin_reply(callback: CallbackQuery, state: FSMContext):
@@ -686,28 +709,9 @@ async def show_all_animes(message: types.Message):
 # 📊 Statistika
 @dp.message_handler(lambda m: m.text == "📊 Statistika")
 async def stats(message: types.Message):
-    # ⏱ Pingni o'lchash
-    from database import db_pool
-    async with db_pool.acquire() as conn:
-        start = time.perf_counter()
-        await conn.fetch("SELECT 1;")  # oddiy so'rov
-        ping = (time.perf_counter() - start) * 1000  # ms ga aylantiramiz
-
-    # 📂 Kodlar va foydalanuvchilar soni
     kodlar = await get_all_codes()
     foydalanuvchilar = await get_user_count()
-
-    # 📅 Bugun qo'shilgan foydalanuvchilar
-    today_users = await get_today_users()
-
-    # 📊 Xabar
-    text = (
-        f"💡 O'rtacha yuklanish: {ping:.2f} ms\n\n"
-        f"👥 Foydalanuvchilar: {foydalanuvchilar} ta\n\n"
-        f"📂 Barcha yuklangan animelar: {len(kodlar)} ta\n\n"
-        f"📅 Bugun qo'shilgan foydalanuvchilar: {today_users} ta"
-    )
-    await message.answer(text)
+    await message.answer(f"📦 Kodlar: {len(kodlar)}\n👥 Foydalanuvchilar: {foydalanuvchilar}")
 
 
 # === Orqaga tugmasi ===
@@ -812,8 +816,8 @@ async def send_forward_only(message: types.Message, state: FSMContext):
             print(f"Xatolik {user_id} uchun: {e}")
             fail += 1
 
-        # Har 25 ta yuborilganda 1 sekund kutish
-        if index % 25 == 0:
+        # Har 27 ta yuborilganda 1 sekund kutish
+        if index % 27 == 0:
             await asyncio.sleep(1)
 
     # Shu yerda state tugatiladi
@@ -828,14 +832,16 @@ async def send_forward_only(message: types.Message, state: FSMContext):
 @dp.message_handler(lambda message: message.text.isdigit())
 async def handle_code_message(message: types.Message):
     code = message.text
-    if not await is_user_subscribed(message.from_user.id):
+    unsubscribed = await get_unsubscribed_channels(message.from_user.id)
+    if unsubscribed:
         markup = await make_unsubscribed_markup(message.from_user.id, code)
         await message.answer("❗ Anime olishdan oldin quyidagi kanal(lar)ga obuna bo‘ling:", reply_markup=markup)
-    else:
-        await increment_stat(code, "init")
-        await increment_stat(code, "searched")
-        await send_reklama_post(message.from_user.id, code)
-        await increment_stat(code, "viewed")
+        return
+
+    await increment_stat(code, "init")
+    await increment_stat(code, "searched")
+    await send_reklama_post(message.from_user.id, code)
+    await increment_stat(code, "viewed")
 
 
 # === Reklama post yuborish ===
@@ -844,30 +850,40 @@ async def send_reklama_post(user_id, code):
     if not data:
         await bot.send_message(user_id, "❌ Kod topilmadi.")
         return
+
     channel, reklama_id, post_count = data["channel"], data["message_id"], data["post_count"]
-    buttons = [InlineKeyboardButton(str(i), callback_data=f"kino:{code}:{i}") for i in range(1, post_count + 1)]
-    keyboard = InlineKeyboardMarkup(row_width=5).add(*buttons)
+
+    # Endi faqat bitta tugma bo'ladi: "✨Yuklab olish"
+    keyboard = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("✨ Yuklab olish", callback_data=f"download:{code}")
+    )
+
     try:
         await bot.copy_message(user_id, channel, reklama_id - 1, reply_markup=keyboard)
     except:
         await bot.send_message(user_id, "❌ Reklama postni yuborib bo‘lmadi.")
 
 
-# === Kino tugmasi ===
-@dp.callback_query_handler(lambda c: c.data.startswith("kino:"))
-async def kino_button(callback: types.CallbackQuery):
-    _, code, number = callback.data.split(":")
-    number = int(number)
+# === Yuklab olish tugmasi bosilganda ===
+@dp.callback_query_handler(lambda c: c.data.startswith("download:"))
+async def download_all(callback: types.CallbackQuery):
+    code = callback.data.split(":")[1]
     result = await get_kino_by_code(code)
     if not result:
         await callback.message.answer("❌ Kod topilmadi.")
         return
+
     channel, base_id, post_count = result["channel"], result["message_id"], result["post_count"]
-    if number > post_count:
-        await callback.answer("❌ Bunday post yo‘q!", show_alert=True)
-        return
-    await bot.copy_message(callback.from_user.id, channel, base_id + number - 1)
-    await callback.answer()
+
+    await callback.answer("⏳ Yuklanmoqda, biroz kuting...")
+
+    # Hamma qismlarni ketma-ket yuborish
+    for i in range(post_count):
+        try:
+            await bot.copy_message(callback.from_user.id, channel, base_id + i)
+            await asyncio.sleep(0.5)  # flood control uchun sekin yuborish
+        except:
+            pass
 
 # === START ===
 async def on_startup(dp):
