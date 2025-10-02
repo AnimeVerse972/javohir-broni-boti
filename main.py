@@ -34,18 +34,18 @@ from database import (
 load_dotenv()
 keep_alive()
 
-API_TOKEN = os.getenv("API_TOKEN")
+API_TOKEN = ("API_TOKEN")
 CHANNELS = []
 LINKS = []
 MAIN_CHANNELS = []
 MAIN_LINKS = []
-BOT_USERNAME = os.getenv("BOT_USERNAME")
+BOT_USERNAME = ("BOT_USERNAME")
 
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-ADMINS = {6486825926, 7575041003, 7137566109}
+ADMINS = {6486825926, 7137566109}
 
 # === KEYBOARDS ===
 def admin_keyboard():
@@ -151,7 +151,6 @@ async def start_handler(message: types.Message):
             )
         else:
             await send_reklama_post(message.from_user.id, code)
-            await increment_stat(code, "searched")
         return
 
     if message.from_user.id in ADMINS:
@@ -841,7 +840,6 @@ async def handle_code_message(message: types.Message):
     await increment_stat(code, "init")
     await increment_stat(code, "searched")
     await send_reklama_post(message.from_user.id, code)
-    await increment_stat(code, "viewed")
 
 
 # === Reklama post yuborish ===
@@ -891,4 +889,4 @@ async def on_startup(dp):
     print("✅ PostgreSQL bazaga ulandi!")
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=True, on_startup=on_startup)
+    executor.start_polling(dp, skip_updates=False, on_startup=on_startup)
